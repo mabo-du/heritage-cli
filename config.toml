@@ -1,0 +1,28 @@
+# Heritage Ecosystem Configuration
+# Location: ~/.config/heritage/config.toml
+#
+# This file is shared across all heritage ecosystem tools.
+# Tools that are not installed are gracefully skipped.
+
+[paths]
+# Workspace root directory for all project data
+workspace = "~/heritage_workspace"
+
+[defaults]
+# Default jurisdiction for new projects
+jurisdiction = "historic_england_cl3"
+
+# Default phase extractor model
+extractor = "glm-ocr"
+
+[tools.hoard]
+# HOARD-specific overrides (optional)
+# extractor = "nuextract3"
+
+[tools.libby]
+# Libby API endpoint (for cloud instances)
+# endpoint = "https://libby.example.com/api"
+
+[tools.stratigraph]
+# StratiGraph data directory
+# data_dir = "~/stratigraph_data"

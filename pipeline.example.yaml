@@ -1,0 +1,40 @@
+# Example Heritage Ecosystem Pipeline
+# Usage: heritage run --project my_site_2026 --pipeline pipeline.example.yaml
+#
+# Replace 'my_site_2026' with your actual HOARD project ID.
+# Tools that are not installed will report an error with install instructions.
+
+steps:
+  # ── Phase 1: Digitise field records ──
+  - id: digitise
+    project: hoard
+    phases: [0, 1]
+    extractor: glm-ocr
+
+  # ── REVIEW: Check digitisation quality ──
+  - id: review_digitisation
+    gate: review
+    message: "Phase 1 digitisation complete. Review the extracted context sheets before proceeding."
+    action: "hoard review --project {project_id}"
+
+  # ── Phase 2: Spatial reconstruction (photo captioning) ──
+  - id: spatial
+    project: hoard
+    phases: [2]
+
+  # ── Phase 3-4: Synthesis and compliance ──
+  - id: draft
+    project: hoard
+    phases: [3, 4]
+
+  # ── REVIEW: Review draft before export ──
+  - id: review_draft
+    gate: review
+    message: "Draft complete. Review the report and make any corrections."
+    action: "hoard review --project {project_id}"
+
+  # ── Phase 5: Export final report ──
+  - id: export
+    project: hoard
+    action: export
+    formats: [docx, pdf]

@@ -80,17 +80,39 @@ def run(
     project: str = typer.Option(..., "--project", "-p", help="Project ID"),
     phase: int | None = typer.Option(None, "--phase", help="Run a single phase only"),
     from_phase: int | None = typer.Option(None, "--from-phase", help="Run from this phase onward"),
+    pipeline: str | None = typer.Option(None, "--pipeline", "-P", help="Path to pipeline YAML file"),
+    auto: bool = typer.Option(False, "--auto", help="Run full pipeline from Phase 0 (or skip review gates with --pipeline)"),
     input_dir: str = typer.Option("./input", "--input", "-i", help="Input directory"),
     strict: bool = typer.Option(False, "--strict", "-s", help="Halt on schema validation failure"),
     extractor: str = typer.Option("glm-ocr", "--extractor", "-e", help="Extraction model"),
-    auto: bool = typer.Option(False, "--auto", help="Run full pipeline from Phase 0"),
     workspace: str = typer.Option("./erd_workspace", "--workspace", "-w", help="Workspace root"),
 ) -> None:
-    """Run the HOARD pipeline (or a single phase).
+    """Run the HOARD pipeline (or a single phase, or a multi-tool pipeline).
 
-    Delegates to 'hoard run' if the CLI is installed, otherwise imports
-    and runs the Python package directly.
+    Use --pipeline to run a declarative multi-tool pipeline YAML with
+    automated steps and human review gates.
+
+    Examples:
+        heritage run --project X --phase 0       # Single phase
+        heritage run --project X --auto           # Full HOARD pipeline
+        heritage run --project X --pipeline pipe.yaml   # Multi-tool pipeline
     """
+    if pipeline:
+        from heritage_cli.orchestrator import PipelineOrchestrator
+        orch = PipelineOrchestrator(
+            pipeline_path=pipeline,
+            project_id=project,
+            workspace=workspace,
+            auto=auto,
+        )
+        try:
+            orch.load()
+            orch.run()
+        except (FileNotFoundError, ValueError) as e:
+            console.print(f"[red]✗[/] {e}")
+            raise typer.Exit(1)
+        return
+
     hoard_bin = find_tool("hoard")
     if hoard_bin:
         import subprocess
@@ -273,6 +295,44 @@ def publish(
             console.print("[yellow]ℹ[/] No output generated. Run the pipeline first.")
     except ImportError:
         console.print("[red]✗[/] HOARD not installed. Run: pip install hoard")
+
+
+# ── Pipeline Status ──────────────────────────────────────────────────────────
+
+
+@app.command(name="pipeline-status")
+def pipeline_status(
+    project: str = typer.Option(..., "--project", "-p", help="Project ID"),
+    workspace: str = typer.Option("./erd_workspace", "--workspace", "-w", help="Workspace root"),
+) -> None:
+    """Show the status of the most recent pipeline run for a project."""
+    from heritage_cli.orchestrator import PipelineOrchestrator
+
+    # Find the most recent pipeline state file
+    state_dir = Path(workspace) / project
+    state_file = state_dir / "pipeline_state.json"
+    if not state_file.exists():
+        console.print(f"[yellow]ℹ[/] No pipeline state found for project '{project}'")
+        console.print(f"  Run [bold]heritage run --project {project} --pipeline <file>[/] first")
+        return
+
+    try:
+        import json
+        data = json.loads(state_file.read_text())
+        console.print(f"[bold]Pipeline Status:[/] {data.get('project', project)}")
+        console.print(f"  State file:  {state_file}")
+        console.print(f"  Pipeline:    {data.get('pipeline', 'unknown')}")
+        console.print(f"  Last update: {data.get('updated_at', 'unknown')}")
+        console.print()
+        steps = data.get("steps", {})
+        console.print(f"[bold]Steps ({len(steps)}):[/]")
+        for step_id, status in steps.items():
+            icon = {"pending": "○", "running": "→", "complete": "✓",
+                    "skipped": "−", "failed": "✗", "blocked": "⊘"}
+            marker = icon.get(status, "?")
+            console.print(f"  {marker} {step_id}: {status}")
+    except (json.JSONDecodeError, OSError) as e:
+        console.print(f"[red]✗[/] Failed to read pipeline state: {e}")
 
 
 # ── Tools sub-command ────────────────────────────────────────────────────────
