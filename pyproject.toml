@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heritage-cli"
+version = "1.0.0"
+description = "Unified CLI for the heritage science open-source ecosystem — orchestrates HOARD, StratiGraph, Trowel, Libby, Dibble, and other tools"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Marcus Quinn" },
+]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13",
+    "platformdirs>=4",
+    "tomli>=2; python_version < '3.11'",
+]
+
+[project.scripts]
+heritage = "heritage_cli.main:app"
+
+[project.entry-points."heritage.tools"]
+hoard = "heritage_cli.commands.hoard"
+stratigraph = "heritage_cli.commands.stratigraph"
+trowel = "heritage_cli.commands.trowel"
+libby = "heritage_cli.commands.libby"
+dibble = "heritage_cli.commands.dibble"
+
+[tool.setuptools.packages.find]
+where = ["src"]
