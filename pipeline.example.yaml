@@ -35,6 +35,5 @@ steps:
 
   # ── Phase 5: Export final report ──
   - id: export
-    project: hoard
-    action: export
+    project: export
     formats: [docx, pdf]
