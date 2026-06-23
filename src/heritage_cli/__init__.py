@@ -13,9 +13,14 @@ Usage:
     heritage --help
     heritage run --project X --phase 0
     heritage calibrate --project X --input samples.json
-    heritage tools list
+    heritage tools     → list installed ecosystem tools
 
 Configuration: ~/.config/heritage/config.toml
 """
 
-__version__ = "1.0.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("heritage-cli")
+except PackageNotFoundError:
+    __version__ = "1.0.0"

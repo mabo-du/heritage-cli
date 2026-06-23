@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "heritage-cli"
-version = "1.0.0"
+version = "1.0.1"
 description = "Unified CLI for the heritage science open-source ecosystem — orchestrates HOARD, StratiGraph, Trowel, Libby, Dibble, and other tools"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -14,9 +14,15 @@ authors = [
 dependencies = [
     "typer>=0.12",
     "rich>=13",
-    "platformdirs>=4",
-    "tomli>=2; python_version < '3.11'",
+    "pyyaml>=6",
 ]
+
+[project.optional-dependencies]
+hoard = ["hoard"]
+libby = ["libby"]
+dibble = ["dibble"]
+trowel = ["trowel"]
+stratigraph = ["stratigraph"]
 
 [project.scripts]
 heritage = "heritage_cli.main:app"
@@ -30,3 +36,9 @@ dibble = "heritage_cli.commands.dibble"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

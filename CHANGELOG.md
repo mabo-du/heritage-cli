@@ -1,5 +1,72 @@
 # Changelog
 
+## [1.0.1] — 2026-06-23
+
+### Fixed
+
+- **PyYAML dependency** — added `pyyaml>=6` to required dependencies; the headline
+  `--pipeline` feature no longer crashes with `ModuleNotFoundError` on a clean install
+- **Subprocess exit codes** — all `subprocess.run` calls now use `check=True` or
+  inspect `returncode`; child tool failures are no longer silently discarded
+- **Entry-point plugin modules** — `stratigraph.py`, `trowel.py`, `libby.py`,
+  `dibble.py` command stubs now ship; all 5 `heritage.tools` entry points resolve
+- **README pipeline schema** — pipeline YAML example corrected to match the
+  actual parser (`project:`, `phases:`, `gate:`, `depends_on:`)
+- **`--resume` flag** — removed from documentation (resume is automatic via saved state)
+- **`heritage tools list`** — corrected to `heritage tools` in all docs
+- **State file key** — `pipeline-status` now reads the correct key `project_id`
+- **`StepKind` enum** — added `STRATIGRAPH` and `TROWEL` values; pipeline steps
+  referencing these tools no longer crash at parse time
+- **Config wiring** — `load_config()` now actually reads from `~/.config/heritage/config.toml`;
+  jurisdiction, extractor, and workspace defaults are no longer hardcoded
+- **Argument injection** — `{project_id}` and `{workspace}` placeholders are now
+  substituted before `shlex.split`, preventing flag injection via crafted IDs
+- **Subprocess timeouts** — all delegated tool calls now have explicit timeouts
+  (3600s for pipelines, 300s for interactive tools)
+- **Gate quit exit code** — quitting a review gate now exits 1 instead of 0
+- **State file atomicity** — `_save_state` uses `shutil.move` instead of `Path.rename`
+  for cross-filesystem safety
+- **None-guard** — `publish` command handles `run_phase5` returning `None` gracefully
+- **`--auto` + `--phase` conflict** — passing both flags together now errors with
+  a clear message instead of sending conflicting arguments to the child tool
+- **StepKind validation** — unknown `project:` values in pipeline YAML now raise
+  a clear error listing valid options, instead of silently skipping
+- **`started_at` timestamp** — pipeline state JSON now records when a run first started
+- **Corrupt state handling** — `_load_state` warns when a state file is corrupt
+  instead of silently starting fresh
+- **`pipeline-status` exit code** — exits 1 on corrupt state files
+- **Console caching** — Rich Console instance reused instead of recreated per call
+- **`fritts`/`argus`** — undocumented tools removed from `heritage tools` listing
+- **`.gitignore`** — added `.ruff_cache/`, `.pytest_cache/`, `.benchmarks/`,
+  `.beads/`, `.ctx/` patterns
+
+### Added
+
+- **Test suite** — 27 tests covering smoke checks, parser validation, state
+  persistence, project ID validation, and argument injection prevention
+- **CI test step** — `publish.yml` runs tests before building/publishing
+- **Project ID validation** — `project_id` values containing `..`, `/`, or `\`
+  are rejected to prevent path traversal
+- **Optional dependency extras** — `heritage-cli[hoard]`, `[libby]`, etc. for
+  per-tool dependency management
+- **`[tool.mypy]`** — mypy type checker configuration in `pyproject.toml`
+
+### Changed
+
+- **Parallel version probes** — `heritage tools` fetches tool versions concurrently
+  instead of serially (worst-case from 35s to 5s)
+- **GitHub Actions pinned to SHAs** — all action references use full commit SHAs
+- **Dependencies** — removed unused `platformdirs` and `tomli`
+- **Removed dead code** — `entry_point()`, `status_report()`, `print()` debug
+  statements removed
+
+### Security
+
+- **Argument injection** — `{project_id}` substitution reordered to prevent
+  flag injection (see Fixes above)
+- **Path traversal** — `project_id` validated before directory creation
+- **Subprocess timeouts** — prevents hung child processes from blocking the CLI indefinitely
+
 ## [1.0.0] — 2026-06-09
 
 ### Added
@@ -12,9 +79,10 @@
 - **Pipeline orchestration** — `heritage run --pipeline <file>` for declarative
   multi-tool YAML pipelines with checkpoint-based execution, human review gates,
   state persistence for resumability, and graceful degradation for missing tools
-- **Tool discovery** — `heritage tools list` auto-detects installed ecosystem
+- **Tool discovery** — `heritage tools` auto-detects installed ecosystem
   tools via `shutil.which` and reports version/status
 - **Centralised config** — reads `~/.config/heritage/config.toml` for shared
   ecosystem settings (workspace root, defaults, per-tool overrides)
 
+[1.0.1]: https://github.com/mabo-du/heritage-cli/releases/tag/v1.0.1
 [1.0.0]: https://github.com/mabo-du/heritage-cli/releases/tag/v1.0.0

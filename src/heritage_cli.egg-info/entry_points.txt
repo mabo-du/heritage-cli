@@ -1,9 +1,0 @@
-[console_scripts]
-heritage = heritage_cli.main:app
-
-[heritage.tools]
-dibble = heritage_cli.commands.dibble
-hoard = heritage_cli.commands.hoard
-libby = heritage_cli.commands.libby
-stratigraph = heritage_cli.commands.stratigraph
-trowel = heritage_cli.commands.trowel

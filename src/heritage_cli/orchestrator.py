@@ -7,21 +7,32 @@ resumability after interruption.
 
 Pipeline YAML format:
     steps:
-      - project: hoard
-        phases: [0, 1, 2]
-      - gate: review
-        message: "Review the Harris Matrix in StratiGraph before proceeding"
+      - id: digitise
+        project: hoard
+        phases: [0, 1]
+      - id: review
+        gate: review
+        message: "Review the Harris Matrix before proceeding"
         action: "stratigraph import --path output/01_digitised"
-      - project: libby
+        depends_on: [digitise]
+      - id: calibrate
+        project: libby
         action: calibrate
         input: output/01_digitised/samples.json
-      - project: hoard
-        phases: [3, 4, 5]
-      - gate: review
+        depends_on: [review]
+      - id: draft
+        project: hoard
+        phases: [3, 4]
+        depends_on: [calibrate]
+      - id: final_review
+        gate: review
         message: "Review the draft before final export"
-      - project: hoard
+        depends_on: [draft]
+      - id: export
+        project: hoard
         action: export
         formats: [docx, pdf]
+        depends_on: [final_review]
 """
 
 from __future__ import annotations
@@ -29,12 +40,10 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
-
 
 # ── Step types ────────────────────────────────────────────────────────────────
 
@@ -54,6 +63,8 @@ class StepKind(str, Enum):
     COMMAND = "command"  # Run an arbitrary shell command
     LIBBY = "libby"  # Calibrate samples
     DIBBLE = "dibble"  # Run lithic analysis
+    STRATIGRAPH = "stratigraph"  # Harris Matrix visualisation
+    TROWEL = "trowel"  # Desktop review dashboard
     EXPORT = "export"  # Final report export
 
 
@@ -104,11 +115,15 @@ class PipelineOrchestrator:
         project_id: str = "",
         workspace: str = "./erd_workspace",
         auto: bool = False,
+        jurisdiction: str = "historic_england_cl3",
     ) -> None:
         self.pipeline_path = Path(pipeline_path)
+        _validate_project_id(project_id)
         self.project_id = project_id
         self.workspace = Path(workspace)
         self.auto = auto  # If True, skip review gates automatically
+        self.jurisdiction = jurisdiction
+        self.started_at: str = ""  # Set on first _save_state
         self.steps: list[PipelineStep] = []
         self.state_dir = self.workspace / project_id
         self.state_file = self.state_dir / "pipeline_state.json"
@@ -125,7 +140,7 @@ class PipelineOrchestrator:
 
         raw = yaml.safe_load(self.pipeline_path.read_text())
         if not raw or "steps" not in raw:
-            raise ValueError(f"Pipeline file must contain a 'steps' list")
+            raise ValueError("Pipeline file must contain a 'steps' list")
 
         steps_raw = raw["steps"]
         self.steps = []
@@ -141,7 +156,14 @@ class PipelineOrchestrator:
             kind = StepKind.GATE
             step_id = raw.get("id", f"gate_{index}")
         elif "project" in raw:
-            kind = StepKind(raw["project"])
+            try:
+                kind = StepKind(raw["project"])
+            except ValueError:
+                raise ValueError(
+                    f"Unknown project type '{raw['project']}' in step "
+                    f"'{raw.get('id', 'unknown')}'. Valid values: "
+                    f"{[e.value for e in StepKind]}"
+                ) from None
             step_id = raw.get("id", f"{kind.value}_{index}")
         else:
             kind = StepKind.COMMAND
@@ -186,23 +208,32 @@ class PipelineOrchestrator:
                 raw_steps = data.get("steps", {})
                 return {k: StepStatus(v) for k, v in raw_steps.items()}
             except (json.JSONDecodeError, ValueError):
-                pass
+                console = _get_console()
+                console.print(
+                    f"  [yellow]⚠[/] Corrupt pipeline state file at {self.state_file} — starting fresh"
+                )
         return {}
 
     def _save_state(self) -> None:
         """Persist current pipeline state to disk."""
         self.state_dir.mkdir(parents=True, exist_ok=True)
         from datetime import datetime, timezone
+
+        is_first_save = not self.state_file.exists()
+        if is_first_save and not self.started_at:
+            self.started_at = datetime.now(timezone.utc).isoformat()
         state = {
             "project_id": self.project_id,
             "pipeline": str(self.pipeline_path),
             "steps": {s.id: s.status.value for s in self.steps},
+            "started_at": self.started_at,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
-        # Write atomically
         tmp = self.state_file.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(state, indent=2))
-        tmp.rename(self.state_file)
+        import shutil
+
+        shutil.move(str(tmp), str(self.state_file))
 
     # ── Execution ────────────────────────────────────────────────────────
 
@@ -229,14 +260,12 @@ class PipelineOrchestrator:
                 console.print(f"  [dim]• {step.id}[/] [yellow](skipped)[/]")
                 continue
 
-            # Check dependencies
             if not self._dependencies_met(step):
                 console.print(f"  [red]✗ {step.id}[/] dependencies not met — blocking")
                 step.status = StepStatus.BLOCKED
                 self._save_state()
                 return
 
-            # Execute
             if step.kind == StepKind.GATE:
                 self._execute_gate(step)
             else:
@@ -285,10 +314,12 @@ class PipelineOrchestrator:
             elif step.kind == StepKind.COMMAND:
                 self._run_command(step)
             else:
-                console.print(f"  [yellow]⚠[/] Unknown step kind: {step.kind} — skipping")
+                console.print(
+                    f"  [yellow]⚠[/] Unknown step kind: {step.kind} — skipping"
+                )
                 step.status = StepStatus.SKIPPED
 
-            if step.status != StepStatus.SKIPPED:
+            if step.status not in (StepStatus.SKIPPED, StepStatus.FAILED):
                 step.status = StepStatus.COMPLETE
                 console.print(f"  [green]✓[/] {step.id} complete")
 
@@ -307,12 +338,19 @@ class PipelineOrchestrator:
         strict = args.get("strict", False)
 
         import shutil
+
         hoard_bin = shutil.which("hoard")
 
         if hoard_bin:
-            cmd = [hoard_bin, "run", "--project", self.project_id, "--workspace", str(self.workspace)]
+            cmd = [
+                hoard_bin,
+                "run",
+                "--project",
+                self.project_id,
+                "--workspace",
+                str(self.workspace),
+            ]
             if phases:
-                # Run each phase sequentially
                 for phase in phases:
                     phase_cmd = cmd + ["--phase", str(phase)]
                     if extractor:
@@ -321,7 +359,6 @@ class PipelineOrchestrator:
                         phase_cmd.append("--strict")
                     _run_subprocess(phase_cmd, step.id)
             else:
-                # Run specified from_phase or full pipeline
                 from_phase = args.get("from_phase")
                 if from_phase is not None:
                     cmd.extend(["--from-phase", str(from_phase)])
@@ -332,13 +369,13 @@ class PipelineOrchestrator:
                 _run_subprocess(cmd, step.id)
         else:
             # Fallback: Python import
-            from hoard.config import Config
             from hoard.cli.run import run_single_phase
+            from hoard.config import Config
 
             cfg = Config(
                 project_id=self.project_id,
                 project_name=self.project_id,
-                jurisdiction="historic_england_cl3",
+                jurisdiction=self.jurisdiction,
                 workspace_root=self.workspace.resolve(),
                 input_dir=(self.workspace / self.project_id / "input").resolve(),
                 strict=strict,
@@ -349,22 +386,32 @@ class PipelineOrchestrator:
                     run_single_phase(cfg, phase)
             else:
                 from hoard.cli.run import run_pipeline
+
                 run_pipeline(cfg)
 
     def _run_libby(self, step: PipelineStep) -> None:
         """Execute Libby radiocarbon calibration."""
         args = step.tool_args
-        input_path = args.get("input", "") or str(self.workspace / self.project_id / "01_digitised" / "samples.json")
+        input_path = args.get("input", "") or str(
+            self.workspace / self.project_id / "01_digitised" / "samples.json"
+        )
         output_dir = str(self.workspace / self.project_id / "03_draft")
 
         import shutil
+
         libby_bin = shutil.which("libby")
         if libby_bin:
-            _run_subprocess([
-                libby_bin, "calibrate",
-                "--input", input_path,
-                "--output", output_dir,
-            ], step.id)
+            _run_subprocess(
+                [
+                    libby_bin,
+                    "calibrate",
+                    "--input",
+                    input_path,
+                    "--output",
+                    output_dir,
+                ],
+                step.id,
+            )
         else:
             raise RuntimeError(
                 "Libby not installed. Install with: pip install libby\n"
@@ -375,16 +422,25 @@ class PipelineOrchestrator:
         """Execute Dibble lithic analysis."""
         args = step.tool_args
         input_dir = args.get("input", "./scans")
-        output_dir = args.get("output", "") or str(self.workspace / self.project_id / "02_spatial" / "lithics")
+        output_dir = args.get("output", "") or str(
+            self.workspace / self.project_id / "02_spatial" / "lithics"
+        )
 
         import shutil
+
         dibble_bin = shutil.which("dibble")
         if dibble_bin:
-            _run_subprocess([
-                dibble_bin, "process",
-                "--input", input_dir,
-                "--output", output_dir,
-            ], step.id)
+            _run_subprocess(
+                [
+                    dibble_bin,
+                    "process",
+                    "--input",
+                    input_dir,
+                    "--output",
+                    output_dir,
+                ],
+                step.id,
+            )
         else:
             raise RuntimeError(
                 "Dibble not installed. Install with: pip install dibble\n"
@@ -398,11 +454,17 @@ class PipelineOrchestrator:
 
         try:
             from hoard.config import load_config
+
             cfg = load_config(self.project_id, self.workspace)
             if cfg is None:
                 raise RuntimeError(f"Project '{self.project_id}' not initialised")
             from hoard.phases.phase5 import run_phase5
+
             result = run_phase5(cfg, formats=formats)
+            if result is None:
+                raise RuntimeError(
+                    f"Project '{self.project_id}' export returned no result"
+                )
             export_paths = result.get("export_paths", {})
             if export_paths:
                 console = _get_console()
@@ -415,14 +477,16 @@ class PipelineOrchestrator:
         """Execute an arbitrary shell command."""
         cmd_str = step.tool_args.get("command", "")
         if not cmd_str:
-            raise ValueError(f"Step '{step.id}' of kind 'command' has no 'command' field")
+            raise ValueError(
+                f"Step '{step.id}' of kind 'command' has no 'command' field"
+            )
         import shlex
+
+        # Substitute placeholders before tokenizing to avoid argument injection
+        cmd_str = cmd_str.replace("{project_id}", self.project_id).replace(
+            "{workspace}", str(self.workspace)
+        )
         cmd_parts = shlex.split(cmd_str)
-        # Substitute {project_id} and {workspace}
-        cmd_parts = [
-            p.replace("{project_id}", self.project_id).replace("{workspace}", str(self.workspace))
-            for p in cmd_parts
-        ]
         _run_subprocess(cmd_parts, step.id)
 
     # ── Review Gates ─────────────────────────────────────────────────────
@@ -447,9 +511,11 @@ class PipelineOrchestrator:
 
         while True:
             try:
-                response = input("  Continue? [Y]es / [s]kip / [q]uit: ").strip().lower()
+                response = (
+                    input("  Continue? [Y]es / [s]kip / [q]uit: ").strip().lower()
+                )
             except (EOFError, KeyboardInterrupt):
-                print()
+                console.print()
                 console.print("[red]✗ Pipeline interrupted[/]")
                 step.status = StepStatus.PENDING
                 self._save_state()
@@ -464,44 +530,51 @@ class PipelineOrchestrator:
                 console.print("  [yellow]→[/] Gate skipped")
                 break
             elif response in ("q", "quit"):
-                console.print("  [red]✗ Pipeline paused — resume with 'heritage run --pipeline ...'[/]")
+                console.print(
+                    "  [red]✗ Pipeline paused — resume with 'heritage run --pipeline ...'[/]"
+                )
                 step.status = StepStatus.PENDING
                 self._save_state()
-                sys.exit(0)
+                sys.exit(1)
 
     # ── Reporting ────────────────────────────────────────────────────────
-
-    def status_report(self) -> str:
-        """Generate a human-readable status report."""
-        lines = [
-            f"Pipeline: {self.pipeline_path}",
-            f"Project:  {self.project_id}",
-            f"State:    {self.state_file}",
-            "",
-            "Steps:",
-        ]
-        for step in self.steps:
-            icon = {"pending": "○", "running": "→", "complete": "✓", "skipped": "−", "failed": "✗", "blocked": "⊘"}
-            marker = icon.get(step.status.value, "?")
-            lines.append(f"  {marker} {step.id}: {step.status.value}")
-            if step.error:
-                lines.append(f"       error: {step.error}")
-        return "\n".join(lines)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
-def _run_subprocess(cmd: list[str], step_id: str) -> None:
+def _run_subprocess(cmd: list[str], step_id: str, timeout: int = 3600) -> None:
     """Run a subprocess with passthrough stdout/stderr."""
     console = _get_console()
     console.print(f"    $ {' '.join(cmd)}")
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, timeout=timeout, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"Step '{step_id}' exited with code {result.returncode}")
+        stderr_tail = result.stderr.strip()[-200:] if result.stderr else ""
+        detail = (
+            f"{stderr_tail}"
+            if stderr_tail
+            else result.stdout.strip()[-200:]
+            if result.stdout
+            else ""
+        )
+        msg = f"Step '{step_id}' exited with code {result.returncode}"
+        if detail:
+            msg += f": {detail}"
+        raise RuntimeError(msg)
+
+
+def _validate_project_id(project_id: str) -> None:
+    """Reject project IDs that could traverse the filesystem."""
+    if not project_id or ".." in project_id or "/" in project_id or "\\" in project_id:
+        raise ValueError(
+            f"Invalid project ID '{project_id}': must not contain '..', '/', or '\\'"
+        )
 
 
 def _get_console():
-    """Get or create a Rich Console instance."""
+    """Get or create a cached Rich Console instance."""
     from rich.console import Console
-    return Console()
+
+    if not hasattr(_get_console, "_instance"):
+        _get_console._instance = Console()
+    return _get_console._instance

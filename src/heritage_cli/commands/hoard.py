@@ -14,6 +14,7 @@ def dispatch(args: list[str] | None = None) -> int:
     """
     import subprocess
     import sys
+
     cmd = ["hoard"] + (args or sys.argv[2:])
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, check=True, timeout=3600)
     return result.returncode
