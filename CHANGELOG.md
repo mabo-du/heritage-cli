@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.0.2] — 2026-06-23
+
+### Added
+
+- **HOARD API contract tests** — 14 integration tests validate that all 6 symbols
+  heritage-cli imports from HOARD (`Config`, `load_config`, `run_pipeline`,
+  `run_single_phase`, `ReviewSession`, `run_phase5`) match the actual API signatures.
+  Parameter names verified (`config` not `cfg`), kwargs accepted, methods present.
+- **Entry-point plugin discovery tests** — verifies all 5 `heritage.tools` entry
+  points resolve to importable modules with correct `tool_name` and `dispatch()`.
+- **Pipeline end-to-end tests** — parses the shipped `pipeline.example.yaml`,
+  validates all step kinds present (HOARD, GATE, EXPORT), and round-trips state
+  with all 6 `StepStatus` values.
+- **pytest markers** — `integration` marker for tests requiring sibling packages;
+  CI runs unit tests on every tag, integration tests on demand.
+
+### Fixed
+
+- **CI publish workflow** — removed `--system` flag from `uv pip install`
+  (`setup-uv` provides a managed venv; `--system` was rejected). Added
+  `uv pip install -e .` step so the test suite can import `heritage_cli`.
+- **`pipeline.example.yaml`** — export step now uses `project: export` (matches
+  `StepKind.EXPORT`) instead of non-functional `project: hoard` with `action: export`.
+
 ## [1.0.1] — 2026-06-23
 
 ### Fixed
@@ -84,5 +108,6 @@
 - **Centralised config** — reads `~/.config/heritage/config.toml` for shared
   ecosystem settings (workspace root, defaults, per-tool overrides)
 
+[1.0.2]: https://github.com/mabo-du/heritage-cli/releases/tag/v1.0.2
 [1.0.1]: https://github.com/mabo-du/heritage-cli/releases/tag/v1.0.1
 [1.0.0]: https://github.com/mabo-du/heritage-cli/releases/tag/v1.0.0

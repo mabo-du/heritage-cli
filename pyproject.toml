@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "heritage-cli"
-version = "1.0.1"
+version = "1.0.2"
 description = "Unified CLI for the heritage science open-source ecosystem — orchestrates HOARD, StratiGraph, Trowel, Libby, Dibble, and other tools"
 requires-python = ">=3.11"
 license = { text = "MIT" }

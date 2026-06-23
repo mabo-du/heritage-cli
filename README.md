@@ -130,7 +130,10 @@ MIT
 # Clone and install in dev mode
 pip install -e ".[dev]"
 
-# Run tests
+# Run unit tests (no sibling packages required)
+python -m pytest tests/ -v -m "not integration"
+
+# Run all tests including integration (requires hoard installed)
 python -m pytest tests/ -v
 
 # Type check
