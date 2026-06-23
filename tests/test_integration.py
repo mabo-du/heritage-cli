@@ -7,7 +7,6 @@ to be installed and are skipped gracefully when unavailable.
 Run with:  python -m pytest tests/ -m integration -v
 """
 
-import sys
 from pathlib import Path
 
 import pytest
@@ -174,10 +173,7 @@ class TestPluginDiscovery:
 
     def test_entry_points_discoverable(self):
         """All 5 tools are declared as entry points and import to valid modules."""
-        if sys.version_info < (3, 12):
-            import importlib_metadata as metadata
-        else:
-            from importlib import metadata
+        from importlib import metadata
 
         entry_points = list(metadata.entry_points(group="heritage.tools"))
 
@@ -190,10 +186,7 @@ class TestPluginDiscovery:
 
     def test_all_entry_points_resolve_to_importable_modules(self):
         """Each entry point module actually imports without error."""
-        if sys.version_info < (3, 12):
-            import importlib_metadata as metadata
-        else:
-            from importlib import metadata
+        from importlib import metadata
 
         for ep in metadata.entry_points(group="heritage.tools"):
             mod = ep.load()
