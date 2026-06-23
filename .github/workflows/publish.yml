@@ -22,10 +22,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install test dependencies
-        run: uv pip install --system pytest typer>=0.12 rich>=13 pyyaml>=6
+        run: uv pip install pytest typer>=0.12 rich>=13 pyyaml>=6
 
       - name: Install heritage-cli
-        run: uv pip install --system .
+        run: uv pip install -e .
 
       - name: Run tests
         run: python -m pytest tests/ -v
